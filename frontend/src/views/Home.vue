@@ -4,12 +4,12 @@
 
     <div class="metrics">
       <div class="metric">
-        <span class="metric-label">Total hoje</span>
-        <span class="metric-value blue">{{ fmtMetro(totalHoje.metros) }}</span>
+        <span class="metric-label">Total no dia selecionado</span>
+        <span class="metric-value blue">{{ fmtMetro(totalDoDia.metros) }}</span>
       </div>
       <div class="metric">
-        <span class="metric-label">Valor hoje</span>
-        <span class="metric-value green">{{ fmtMoney(totalHoje.valor) }}</span>
+        <span class="metric-label">Valor no dia selecionado</span>
+        <span class="metric-value green">{{ fmtMoney(totalDoDia.valor) }}</span>
       </div>
       <div class="metric">
         <span class="metric-label">Acumulado geral (m³)</span>
@@ -22,7 +22,15 @@
     </div>
 
     <div class="card">
-      <h2>Novo lançamento — {{ fmtDataBR(hoje) }}</h2>
+      <div class="header-row">
+        <h2>Novo lançamento</h2>
+        <span v-if="ehHoje" class="tag-hoje">hoje</span>
+      </div>
+
+      <div class="form-group">
+        <label>Data</label>
+        <input v-model="form.data" type="date" :max="hoje" />
+      </div>
 
       <div class="form-group">
         <label>Metragem (m³)</label>
@@ -52,10 +60,10 @@
       </button>
     </div>
 
-    <div v-if="registrosHoje.length" class="card">
-      <h2>Lançamentos de hoje</h2>
+    <div v-if="registrosDoDia.length" class="card">
+      <h2>Lançamentos de {{ fmtDataBR(form.data) }}</h2>
       <ul class="lista">
-        <li v-for="r in registrosHoje" :key="r.id" class="lista-item">
+        <li v-for="r in registrosDoDia" :key="r.id" class="lista-item">
           <span>{{ fmtMetro(r.metros) }} × R$ {{ Number(r.preco_m3).toFixed(2).replace('.', ',') }} = <strong>{{ fmtMoney(r.valor_total) }}</strong></span>
           <span v-if="r.observacao" class="obs">{{ r.observacao }}</span>
           <button @click="remover(r.id)" class="btn-remover" title="Remover">×</button>
@@ -66,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRegistroStore } from '../stores/registros'
 
 const store = useRegistroStore()
@@ -75,15 +83,17 @@ const erro     = ref(null)
 
 const hoje = new Date().toISOString().slice(0, 10)
 
-const form = ref({ metros: null, preco_m3: 2.20, observacao: '' })
+const form = ref({ data: hoje, metros: null, preco_m3: 2.20, observacao: '' })
 
-const registrosHoje = computed(() =>
-  store.registros.filter(r => r.data === hoje)
+const ehHoje = computed(() => form.value.data === hoje)
+
+const registrosDoDia = computed(() =>
+  store.registros.filter(r => r.data.substring(0, 10) === form.value.data)
 )
 
-const totalHoje = computed(() => ({
-  metros: registrosHoje.value.reduce((s, r) => s + r.metros, 0),
-  valor:  registrosHoje.value.reduce((s, r) => s + r.valor_total, 0),
+const totalDoDia = computed(() => ({
+  metros: registrosDoDia.value.reduce((s, r) => s + r.metros, 0),
+  valor:  registrosDoDia.value.reduce((s, r) => s + r.valor_total, 0),
 }))
 
 function fmtMetro(v) {
@@ -95,8 +105,13 @@ function fmtMoney(v) {
 }
 
 function fmtDataBR(d) {
-  const [y, m, day] = d.split('-')
+  const data = d.substring(0, 10)
+  const [y, m, day] = data.split('-')
   return `${day}/${m}/${y}`
+}
+
+async function carregarDia() {
+  await store.carregar({ data: form.value.data })
 }
 
 async function salvar() {
@@ -104,16 +119,20 @@ async function salvar() {
     erro.value = 'Informe a metragem.'
     return
   }
+  if (!form.value.data) {
+    erro.value = 'Informe a data.'
+    return
+  }
   erro.value   = null
   salvando.value = true
   try {
     await store.adicionar({
-      data:       hoje,
+      data:       form.value.data,
       metros:     form.value.metros,
       preco_m3:   form.value.preco_m3 || 2.20,
       observacao: form.value.observacao || null,
     })
-    form.value = { metros: null, preco_m3: form.value.preco_m3, observacao: '' }
+    form.value = { ...form.value, metros: null, observacao: '' }
   } catch (e) {
     erro.value = 'Erro ao salvar. Tente novamente.'
   } finally {
@@ -126,8 +145,12 @@ async function remover(id) {
   await store.remover(id)
 }
 
+watch(() => form.value.data, () => {
+  carregarDia()
+})
+
 onMounted(async () => {
-  await store.carregar({ data: hoje })
+  await carregarDia()
   await store.carregarResumo()
 })
 </script>
@@ -135,6 +158,24 @@ onMounted(async () => {
 <style scoped>
 h1 { font-size: 20px; font-weight: 600; margin-bottom: 1.25rem; }
 h2 { font-size: 15px; font-weight: 600; margin-bottom: 1rem; color: #3d3d3a; }
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.header-row h2 { margin-bottom: 0; }
+
+.tag-hoje {
+  font-size: 11px;
+  background: #eaf3de;
+  color: #3b6d11;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 500;
+}
 
 .metrics {
   display: grid;
